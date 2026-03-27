@@ -1,4 +1,6 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using System.Runtime.InteropServices;
+using System.Threading.Channels;
+using Microsoft.EntityFrameworkCore;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using Shipping.Api.Models;
@@ -37,14 +39,40 @@ namespace Shipping.Api.Services
                 if (order == null)
                 {
                     _logger.LogWarning("Received invalid order message: {Message}", message);
-                    return;
+					// should also not ack if the received message is invalid
+                    await _channel.BasicNackAsync
+					(
+						ea.DeliveryTag,
+						false,
+						requeue: true
+					);
+					return;
                 }
-                await ProcessOrderAsync(order);
+                try
+                {
+					await ProcessOrderAsync(order);
+                    await _channel.BasicAckAsync
+                    (
+                        ea.DeliveryTag,
+                        false
+                    );
+				}
+				catch
+                {
+                    await Task.Delay(1000);
+                    await _channel.BasicNackAsync
+                    (
+                        ea.DeliveryTag,
+                        false,
+                        requeue: true
+                    );
+                }
             };
 
-            await _channel.BasicConsumeAsync(
+            await _channel.BasicConsumeAsync
+            (
                 queue: "shipping_queue",
-                autoAck: true,
+                autoAck: false,
                 consumer: consumer
             );
         }
@@ -77,7 +105,7 @@ namespace Shipping.Api.Services
 			}
             else 
             {
-				_logger.LogInformation("Shipping order already exists: {OrderId}", order.Id);
+				_logger.LogWarning("Shipping order already exists: {OrderId}", order.Id);
 			}
 			await Task.CompletedTask;
         }

@@ -64,7 +64,7 @@ namespace Shipping.Api.tests
             // Verificer også at logning blev kaldt for skip-scenariet
             loggerMock.Verify(
                 x => x.Log(
-                    LogLevel.Information,
+                    LogLevel.Warning,
                     It.IsAny<EventId>(),
                     It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("already exists")),
                     It.IsAny<Exception>(),

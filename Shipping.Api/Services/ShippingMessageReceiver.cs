@@ -1,4 +1,5 @@
-﻿using RabbitMQ.Client;
+﻿using Microsoft.EntityFrameworkCore;
+using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using Shipping.Api.Models;
 
@@ -41,27 +42,44 @@ namespace Shipping.Api.Services
                 await ProcessOrderAsync(order);
             };
 
-            await _channel.BasicConsumeAsync(queue: "shipping_queue",
-                                 autoAck: true,
-                                 consumer: consumer);
+            await _channel.BasicConsumeAsync(
+                queue: "shipping_queue",
+                autoAck: true,
+                consumer: consumer
+            );
         }
 
         public async Task ProcessOrderAsync(Order order)
         {
             using var scope = _scopeFactory.CreateScope();
             var shippingContext = scope.ServiceProvider.GetRequiredService<Data.ShippingContext>();
-            var shippingOrder = new ShippingOrder
-            {
-                ShippingId = Guid.NewGuid(),
-                OrderId = order?.Id,
-                ShippingAdress = order?.ShippingAddress ?? string.Empty,
-                Status = ShippingStatus.Pending
-            };
-            shippingContext.ShippingOrders.Add(shippingOrder);
-            await shippingContext.SaveChangesAsync();
-            _logger.LogInformation("Creating shipping order for OrderId: {OrderId}", shippingOrder.OrderId);
-            await Task.CompletedTask;
 
+            // tjekker om order allerade er processeret
+            bool orderAlreadyProcessed = false;
+            await shippingContext.ShippingOrders.ForEachAsync(shippingOrder => {
+                if (shippingOrder.OrderId.Equals(order.Id))
+                {
+                    orderAlreadyProcessed = true;
+                    return;
+			    }
+            });
+            if (!orderAlreadyProcessed) {
+				var shippingOrder = new ShippingOrder
+				{
+					ShippingId = Guid.NewGuid(),
+					OrderId = order?.Id,
+					ShippingAdress = order?.ShippingAddress ?? string.Empty,
+					Status = ShippingStatus.Pending
+				};
+				shippingContext.ShippingOrders.Add(shippingOrder);
+				await shippingContext.SaveChangesAsync();
+				_logger.LogInformation("Creating shipping order for OrderId: {OrderId}", shippingOrder.OrderId);
+			}
+            else 
+            {
+				_logger.LogInformation("Shipping order already exists: {OrderId}", order.Id);
+			}
+			await Task.CompletedTask;
         }
 
         public Task StopAsync(CancellationToken cancellationToken)
